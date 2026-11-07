@@ -1,0 +1,545 @@
+<title>FilaQuote</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="description" content="Free, open-source 3D print cost calculator. Drop an STL and get material, time, electricity and a ready-to-send quote.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: workbench — model on the left (drop zone, live preview, measurements), settings in the middle, a sticky quote ticket on the right that stacks on phones */
+:root{
+  --bg:#EEF2F0; --surface:#FFFFFF; --sunk:#E3E9E6; --line:#CFD8D4;
+  --ink:#14201B; --muted:#5B6B64;
+  --accent:#0E7466; --accent-ink:#FFFFFF; --accent-soft:#D4EBE6;
+  --warn:#A55A00;
+  --model:#0E7466; --grid:#C3CEC9;
+  --f-display:"Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --f-body:"IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --f-mono:"IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --r:10px;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#101614; --surface:#18201D; --sunk:#0C110F; --line:#2A3531;
+    --ink:#E4ECE8; --muted:#90A29A;
+    --accent:#3FC3AD; --accent-ink:#06201B; --accent-soft:#163A33;
+    --warn:#F0A64A; --model:#3FC3AD; --grid:#2A3531;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#101614; --surface:#18201D; --sunk:#0C110F; --line:#2A3531;
+  --ink:#E4ECE8; --muted:#90A29A;
+  --accent:#3FC3AD; --accent-ink:#06201B; --accent-soft:#163A33;
+  --warn:#F0A64A; --model:#3FC3AD; --grid:#2A3531;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.5}
+.wrap{max-width:1320px;margin:0 auto;padding-block:20px 48px;padding-left:max(16px, env(safe-area-inset-left, 0px));padding-right:max(16px, env(safe-area-inset-right, 0px))}
+header.top{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:20px}
+.brand h1{font-family:var(--f-display);font-weight:700;font-size:clamp(28px,4vw,40px);letter-spacing:-.02em;margin:0;line-height:1}
+.brand h1 span{color:var(--accent)}
+.brand p{margin:6px 0 0;color:var(--muted);max-width:56ch;text-wrap:balance}
+.tag{font-family:var(--f-mono);font-size:12px;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:4px 10px}
+
+.grid{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr) minmax(0,.85fr);gap:18px;align-items:start}
+@media (max-width:1100px){.grid{grid-template-columns:minmax(0,1fr) minmax(0,1fr)} .ticket{grid-column:1 / -1}}
+@media (max-width:720px){.grid{grid-template-columns:minmax(0,1fr)}}
+
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:16px;min-width:0}
+.col{display:flex;flex-direction:column;gap:18px;min-width:0}
+h2{font-family:var(--f-display);font-weight:500;font-size:18px;margin:0 0 12px;letter-spacing:-.01em}
+.eyebrow{font-family:var(--f-mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+
+/* viewer */
+.viewer{position:relative;aspect-ratio:4/3;max-width:100%;background:var(--sunk);border-radius:8px;overflow:hidden;
+  background-image:repeating-linear-gradient(0deg,transparent 0 3px,color-mix(in srgb,var(--grid) 35%,transparent) 3px 4px)}
+.viewer canvas{display:block;width:100%;height:100%;cursor:grab;touch-action:none}
+.viewer canvas:active{cursor:grabbing}
+.viewer .hint{position:absolute;left:10px;bottom:8px;font-family:var(--f-mono);font-size:11px;color:var(--muted)}
+.viewer .badge{position:absolute;right:10px;top:10px;font-family:var(--f-mono);font-size:11px;background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:3px 9px;color:var(--muted)}
+.drop{margin-top:12px;border:1.5px dashed var(--line);border-radius:8px;padding:14px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;transition:border-color .15s, background .15s}
+.drop.over{border-color:var(--accent);background:var(--accent-soft)}
+.drop .name{font-weight:600;word-break:break-all}
+.drop .sub{color:var(--muted);font-size:13px}
+.btn{font:inherit;font-weight:600;font-size:14px;border-radius:8px;padding:9px 14px;border:1px solid var(--accent);background:var(--accent);color:var(--accent-ink);cursor:pointer}
+.btn.ghost{background:transparent;color:var(--accent)}
+.btn:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.err{color:var(--warn);font-size:13px;margin-top:8px}
+
+.stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:8px;overflow:hidden;margin-top:12px}
+.stat{background:var(--surface);padding:10px 12px;min-width:0}
+.stat b{display:block;font-family:var(--f-mono);font-weight:500;font-size:16px;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.stat span{font-size:12px;color:var(--muted)}
+
+/* fields */
+fieldset{border:0;padding:0;margin:0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+fieldset + h2{margin-top:22px}
+.f{display:flex;flex-direction:column;gap:4px;min-width:0}
+.f.full{grid-column:1 / -1}
+.f label{font-size:13px;color:var(--muted)}
+.inp{display:flex;align-items:center;border:1px solid var(--line);border-radius:8px;background:var(--bg);overflow:hidden}
+.inp input,.inp select,select.inp{font:inherit;font-family:var(--f-mono);font-size:14px;border:0;background:transparent;color:var(--ink);padding:8px 10px;width:100%;min-width:0;font-variant-numeric:tabular-nums}
+select.inp{font-family:var(--f-body);font-weight:500}
+.inp .u{font-family:var(--f-mono);font-size:12px;color:var(--muted);padding-right:10px;white-space:nowrap}
+.range{display:flex;align-items:center;gap:10px}
+.range input{flex:1;accent-color:var(--accent)}
+.range output{font-family:var(--f-mono);font-size:14px;min-width:4ch;text-align:right}
+.note{font-size:12px;color:var(--muted);margin:8px 0 0}
+
+/* ticket */
+.ticket{position:sticky;top:calc(env(safe-area-inset-top, 0px) + 16px);background:var(--surface);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.ticket .head{padding:16px;background:var(--accent);color:var(--accent-ink)}
+.ticket .head .eyebrow{color:inherit;opacity:.8}
+.price{font-family:var(--f-display);font-weight:700;font-size:clamp(34px,4.4vw,48px);letter-spacing:-.02em;line-height:1.05;font-variant-numeric:tabular-nums;margin-top:4px}
+.per{font-family:var(--f-mono);font-size:13px;opacity:.85}
+.lines{padding:6px 16px 4px;margin:0;list-style:none}
+.lines li{display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px dashed var(--line);font-size:14px}
+.lines li:last-child{border-bottom:0}
+.lines li span:last-child{font-family:var(--f-mono);font-variant-numeric:tabular-nums;white-space:nowrap}
+.lines li.sum{font-weight:600}
+.lines .k small{display:block;color:var(--muted);font-size:12px;font-weight:400}
+.bar{display:flex;height:8px;margin:4px 16px 12px;border-radius:999px;overflow:hidden;background:var(--sunk)}
+.bar i{display:block;height:100%}
+.legend{display:flex;flex-wrap:wrap;gap:6px 12px;padding:0 16px 14px;font-size:12px;color:var(--muted)}
+.legend span::before{content:"";display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:5px;background:var(--c)}
+.actions{display:flex;gap:8px;padding:0 16px 16px;flex-wrap:wrap}
+.actions .btn{flex:1}
+.toast{font-size:13px;color:var(--accent);padding:0 16px 14px;min-height:1em}
+footer{margin-top:28px;color:var(--muted);font-size:13px;display:flex;gap:16px;flex-wrap:wrap;justify-content:space-between}
+footer a{color:var(--accent)}
+@media (prefers-reduced-motion: reduce){*{transition:none!important}}
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div class="brand">
+      <h1>Fila<span>Quote</span></h1>
+      <p>Drop an STL and get what the print really costs: filament, machine time, power, labour and a price you can send to a customer.</p>
+    </div>
+    <span class="tag">open source · runs in your browser · files never leave your device</span>
+  </header>
+
+  <main class="grid">
+    <!-- Model -->
+    <section class="col">
+      <div class="panel">
+        <h2>Model</h2>
+        <div class="viewer" id="viewer">
+          <canvas id="cv" aria-label="3D preview of the model"></canvas>
+          <span class="badge" id="badge">Sample</span>
+          <span class="hint">Drag to rotate · scroll to zoom</span>
+        </div>
+        <div class="drop" id="drop">
+          <div>
+            <div class="name" id="fname">Twisted star vase (sample)</div>
+            <div class="sub">Drop a .stl here, or choose one</div>
+          </div>
+          <label class="btn" for="file" tabindex="0">Choose STL</label>
+          <input id="file" type="file" accept=".stl" hidden>
+        </div>
+        <div class="err" id="err" hidden></div>
+        <div class="stats">
+          <div class="stat"><b id="sVol">–</b><span>Volume</span></div>
+          <div class="stat"><b id="sSize">–</b><span>Size X × Y × Z</span></div>
+          <div class="stat"><b id="sTri">–</b><span>Triangles</span></div>
+          <div class="stat"><b id="sArea">–</b><span>Surface area</span></div>
+          <div class="stat"><b id="sGram">–</b><span>Filament</span></div>
+          <div class="stat"><b id="sTime">–</b><span>Print time</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Settings -->
+    <section class="panel">
+      <h2>Material</h2>
+      <fieldset>
+        <div class="f full"><label for="mat">Filament</label>
+          <select class="inp" id="mat"></select></div>
+        <div class="f"><label for="density">Density</label>
+          <div class="inp"><input id="density" type="number" step="0.01" min="0.5"><span class="u">g/cm³</span></div></div>
+        <div class="f"><label for="spool">Spool price</label>
+          <div class="inp"><input id="spool" type="number" step="10" min="0"><span class="u cur">/kg</span></div></div>
+        <div class="f full"><label for="infill">Infill</label>
+          <div class="range"><input id="infill" type="range" min="0" max="100" step="5"><output id="infillOut">20%</output></div></div>
+        <div class="f"><label for="walls">Wall loops</label>
+          <div class="inp"><input id="walls" type="number" min="1" max="10" step="1"><span class="u">× 0.45 mm</span></div></div>
+        <div class="f"><label for="support">Supports & waste</label>
+          <div class="inp"><input id="support" type="number" min="0" max="200" step="1"><span class="u">%</span></div></div>
+      </fieldset>
+
+      <h2>Printer</h2>
+      <fieldset>
+        <div class="f"><label for="speed">Throughput</label>
+          <div class="inp"><input id="speed" type="number" min="1" step="1"><span class="u">g/h</span></div></div>
+        <div class="f"><label for="watts">Average power</label>
+          <div class="inp"><input id="watts" type="number" min="0" step="10"><span class="u">W</span></div></div>
+        <div class="f"><label for="kwh">Electricity rate</label>
+          <div class="inp"><input id="kwh" type="number" min="0" step="0.5"><span class="u cur">/kWh</span></div></div>
+        <div class="f"><label for="pcost">Printer price</label>
+          <div class="inp"><input id="pcost" type="number" min="0" step="1000"><span class="u cur"></span></div></div>
+        <div class="f full"><label for="plife">Expected printer life</label>
+          <div class="inp"><input id="plife" type="number" min="1" step="500"><span class="u">hours</span></div></div>
+      </fieldset>
+      <p class="note">Throughput is how many grams your printer lays down per hour. Around 12 g/h suits older bed-slingers; fast CoreXY printers manage 25–40 g/h.</p>
+
+      <h2>Business</h2>
+      <fieldset>
+        <div class="f"><label for="labmin">Hands-on time</label>
+          <div class="inp"><input id="labmin" type="number" min="0" step="5"><span class="u">min</span></div></div>
+        <div class="f"><label for="labrate">Labour rate</label>
+          <div class="inp"><input id="labrate" type="number" min="0" step="10"><span class="u cur">/h</span></div></div>
+        <div class="f"><label for="fail">Failure buffer</label>
+          <div class="inp"><input id="fail" type="number" min="0" max="100" step="1"><span class="u">%</span></div></div>
+        <div class="f"><label for="markup">Markup</label>
+          <div class="inp"><input id="markup" type="number" min="0" step="5"><span class="u">%</span></div></div>
+        <div class="f"><label for="qty">Quantity</label>
+          <div class="inp"><input id="qty" type="number" min="1" step="1"><span class="u">pcs</span></div></div>
+        <div class="f"><label for="cur">Currency</label>
+          <select class="inp" id="cur">
+            <option value="INR">₹ INR</option><option value="USD">$ USD</option><option value="EUR">€ EUR</option><option value="GBP">£ GBP</option>
+          </select></div>
+      </fieldset>
+      <div class="actions" style="padding:16px 0 0"><button class="btn ghost" id="reset" type="button">Reset to defaults</button></div>
+    </section>
+
+    <!-- Quote -->
+    <aside class="ticket" aria-live="polite">
+      <div class="head">
+        <div class="eyebrow">Quote · <span id="qQty">1 pc</span></div>
+        <div class="price" id="qTotal">–</div>
+        <div class="per" id="qPer">–</div>
+      </div>
+      <ul class="lines" id="lines"></ul>
+      <div class="bar" id="bar"></div>
+      <div class="legend" id="legend"></div>
+      <div class="actions">
+        <button class="btn" id="copy" type="button">Copy quote</button>
+      </div>
+      <div class="toast" id="toast"></div>
+    </aside>
+  </main>
+
+  <footer>
+    <span>Estimates only. Your slicer's numbers are always more exact; use them to tune throughput.</span>
+    <span>MIT licensed · <a href="https://github.com/" target="_blank" rel="noopener">Contribute on GitHub</a></span>
+  </footer>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(() => {
+  "use strict";
+  const $ = id => document.getElementById(id);
+
+  /* ---------- presets ---------- */
+  const MATERIALS = {
+    PLA:  { density: 1.24, price: 1200 },
+    PETG: { density: 1.27, price: 1400 },
+    ABS:  { density: 1.04, price: 1300 },
+    ASA:  { density: 1.07, price: 1800 },
+    TPU:  { density: 1.21, price: 2200 },
+    "PLA+ / Silk": { density: 1.23, price: 1500 },
+    Custom: null
+  };
+  const DEFAULTS = {
+    mat: "PLA", density: 1.24, spool: 1200, infill: 20, walls: 3, support: 5,
+    speed: 18, watts: 150, kwh: 8, pcost: 60000, plife: 5000,
+    labmin: 15, labrate: 200, fail: 10, markup: 60, qty: 1, cur: "INR"
+  };
+  const FIELDS = Object.keys(DEFAULTS);
+
+  const matSel = $("mat");
+  Object.keys(MATERIALS).forEach(k => matSel.add(new Option(k, k)));
+
+  /* ---------- settings persistence ---------- */
+  function load() {
+    let saved = {};
+    try { saved = JSON.parse(localStorage.getItem("filaquote.settings") || "{}"); } catch (e) {}
+    const s = Object.assign({}, DEFAULTS, saved);
+    FIELDS.forEach(k => { $(k).value = s[k]; });
+  }
+  function save() {
+    const s = {};
+    FIELDS.forEach(k => s[k] = $(k).value);
+    try { localStorage.setItem("filaquote.settings", JSON.stringify(s)); } catch (e) {}
+  }
+
+  /* ---------- STL parsing ---------- */
+  function parseSTL(buf) {
+    const dv = new DataView(buf);
+    if (buf.byteLength >= 84) {
+      const n = dv.getUint32(80, true);
+      if (84 + n * 50 === buf.byteLength) {
+        const pos = new Float32Array(n * 9);
+        let o = 84;
+        for (let i = 0; i < n; i++) {
+          o += 12; // skip normal
+          for (let j = 0; j < 9; j++) { pos[i * 9 + j] = dv.getFloat32(o, true); o += 4; }
+          o += 2;
+        }
+        return pos;
+      }
+    }
+    const text = new TextDecoder().decode(buf);
+    const re = /vertex\s+([-+\d.eE]+)\s+([-+\d.eE]+)\s+([-+\d.eE]+)/g;
+    const out = []; let m;
+    while ((m = re.exec(text))) out.push(+m[1], +m[2], +m[3]);
+    if (!out.length || out.length % 9) throw new Error("This file doesn't look like a valid STL. Export it again from your CAD tool as STL (binary or ASCII).");
+    return new Float32Array(out);
+  }
+
+  /* ---------- geometry measurements ---------- */
+  function measure(pos) {
+    let vol = 0, area = 0;
+    const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
+    for (let i = 0; i < pos.length; i += 9) {
+      const ax = pos[i], ay = pos[i+1], az = pos[i+2];
+      const bx = pos[i+3], by = pos[i+4], bz = pos[i+5];
+      const cx = pos[i+6], cy = pos[i+7], cz = pos[i+8];
+      vol += (ax * (by * cz - bz * cy) - ay * (bx * cz - bz * cx) + az * (bx * cy - by * cx)) / 6;
+      const ux = bx-ax, uy = by-ay, uz = bz-az, vx = cx-ax, vy = cy-ay, vz = cz-az;
+      const nx = uy*vz-uz*vy, ny = uz*vx-ux*vz, nz = ux*vy-uy*vx;
+      area += Math.sqrt(nx*nx + ny*ny + nz*nz) / 2;
+      for (let k = 0; k < 9; k++) {
+        const a = k % 3, v = pos[i + k];
+        if (v < min[a]) min[a] = v; if (v > max[a]) max[a] = v;
+      }
+    }
+    return { volMM3: Math.abs(vol), areaMM2: area, tris: pos.length / 9, size: [max[0]-min[0], max[1]-min[1], max[2]-min[2]], min, max };
+  }
+
+  /* ---------- sample model: twisted star vase, 80 mm tall ---------- */
+  function sampleModel() {
+    const P = 10, RINGS = 40, H = 80, TWIST = Math.PI * 0.4;
+    const ring = h => {
+      const t = h / RINGS, z = t * H;
+      const bulge = 22 + 9 * Math.sin(Math.PI * t * 0.9 + 0.3);
+      const pts = [];
+      for (let i = 0; i < P; i++) {
+        const a = (i / P) * Math.PI * 2 + TWIST * t;
+        const r = i % 2 ? bulge * 0.78 : bulge;
+        pts.push([r * Math.cos(a), r * Math.sin(a), z]);
+      }
+      return pts;
+    };
+    const rings = Array.from({ length: RINGS + 1 }, (_, h) => ring(h));
+    const tri = [];
+    const push = (...v) => v.forEach(p => tri.push(p[0], p[1], p[2]));
+    for (let h = 0; h < RINGS; h++) {
+      const L = rings[h], U = rings[h + 1];
+      for (let i = 0; i < P; i++) {
+        const j = (i + 1) % P;
+        push(L[i], L[j], U[j]);
+        push(L[i], U[j], U[i]);
+      }
+    }
+    const cb = [0, 0, 0], ct = [0, 0, H], B = rings[0], T = rings[RINGS];
+    for (let i = 0; i < P; i++) {
+      const j = (i + 1) % P;
+      push(cb, B[j], B[i]);
+      push(ct, T[i], T[j]);
+    }
+    return new Float32Array(tri);
+  }
+
+  /* ---------- 3D viewer ---------- */
+  const viewer = { ok: false };
+  function initViewer() {
+    if (!window.THREE) return;
+    const cv = $("cv");
+    const renderer = new THREE.WebGLRenderer({ canvas: cv, antialias: true, alpha: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(35, 4 / 3, 0.1, 10000);
+    scene.add(new THREE.HemisphereLight(0xffffff, 0x445555, 0.85));
+    const dl = new THREE.DirectionalLight(0xffffff, 0.7); dl.position.set(1, 2, 1.5); scene.add(dl);
+    const pivot = new THREE.Group(); scene.add(pivot);
+    const mat = new THREE.MeshStandardMaterial({ color: 0x0E7466, roughness: 0.55, metalness: 0.05, flatShading: true });
+    Object.assign(viewer, { ok: true, renderer, scene, camera, pivot, mat, rotY: 0.6, rotX: 0.35, dist: 200, auto: true, mesh: null });
+
+    let drag = null;
+    cv.addEventListener("pointerdown", e => { drag = { x: e.clientX, y: e.clientY }; viewer.auto = false; cv.setPointerCapture(e.pointerId); });
+    cv.addEventListener("pointermove", e => {
+      if (!drag) return;
+      viewer.rotY += (e.clientX - drag.x) * 0.01;
+      viewer.rotX = Math.max(-1.4, Math.min(1.4, viewer.rotX + (e.clientY - drag.y) * 0.01));
+      drag = { x: e.clientX, y: e.clientY };
+    });
+    cv.addEventListener("pointerup", () => drag = null);
+    cv.addEventListener("wheel", e => { e.preventDefault(); viewer.dist *= e.deltaY > 0 ? 1.1 : 0.9; }, { passive: false });
+
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const resize = () => {
+      const w = cv.clientWidth, h = cv.clientHeight;
+      if (!w || !h) return;
+      renderer.setSize(w, h, false);
+      camera.aspect = w / h; camera.updateProjectionMatrix();
+    };
+    new ResizeObserver(resize).observe(cv);
+    resize();
+    const tick = () => {
+      if (viewer.auto && !reduce) viewer.rotY += 0.004;
+      pivot.rotation.set(0, 0, 0);
+      camera.position.set(
+        viewer.dist * Math.cos(viewer.rotX) * Math.sin(viewer.rotY),
+        viewer.dist * Math.sin(viewer.rotX),
+        viewer.dist * Math.cos(viewer.rotX) * Math.cos(viewer.rotY)
+      );
+      camera.lookAt(0, 0, 0);
+      renderer.render(scene, camera);
+      requestAnimationFrame(tick);
+    };
+    tick();
+    themeColor();
+  }
+  function themeColor() {
+    if (!viewer.ok) return;
+    const c = getComputedStyle(document.documentElement).getPropertyValue("--model").trim();
+    try { viewer.mat.color.set(c); } catch (e) {}
+  }
+  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", themeColor);
+  new MutationObserver(themeColor).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+
+  function showModel(pos, m) {
+    if (!viewer.ok) return;
+    if (viewer.mesh) { viewer.pivot.remove(viewer.mesh); viewer.mesh.geometry.dispose(); }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+    g.computeVertexNormals();
+    const cx = (m.min[0] + m.max[0]) / 2, cy = (m.min[1] + m.max[1]) / 2, cz = (m.min[2] + m.max[2]) / 2;
+    g.translate(-cx, -cy, -cz);
+    const mesh = new THREE.Mesh(g, viewer.mat);
+    mesh.rotation.x = -Math.PI / 2; // STL is Z-up
+    viewer.pivot.add(mesh); viewer.mesh = mesh;
+    const r = Math.hypot(...m.size) / 2 || 50;
+    viewer.dist = r / Math.tan((35 * Math.PI / 180) / 2) * 1.15;
+    viewer.camera.near = r / 100; viewer.camera.far = r * 100; viewer.camera.updateProjectionMatrix();
+  }
+
+  /* ---------- state + calculation ---------- */
+  let model = null, lastQuote = null;
+  const num = id => { const v = parseFloat($(id).value); return isFinite(v) ? v : 0; };
+
+  const fmtMoney = (v, cur) => new Intl.NumberFormat(cur === "INR" ? "en-IN" : "en-US", {
+    style: "currency", currency: cur, maximumFractionDigits: v < 100 ? 2 : 0, minimumFractionDigits: v < 100 ? 2 : 0
+  }).format(v);
+  const fmtNum = (v, d = 1) => v.toLocaleString("en-US", { maximumFractionDigits: d, minimumFractionDigits: d });
+  const fmtTime = h => { const t = Math.round(h * 60); return t < 60 ? `${t} min` : `${Math.floor(t / 60)} h ${String(t % 60).padStart(2, "0")} min`; };
+
+  function calc() {
+    if (!model) return;
+    const cur = $("cur").value;
+    const sym = { INR: "₹", USD: "$", EUR: "€", GBP: "£" }[cur];
+    document.querySelectorAll(".cur").forEach(el => {
+      const suffix = el.dataset.suffix ?? (el.dataset.suffix = el.textContent);
+      el.textContent = sym + suffix;
+    });
+    $("infillOut").textContent = $("infill").value + "%";
+
+    const V = model.volMM3;                         // mm³
+    const shell = Math.min(V, model.areaMM2 * num("walls") * 0.45); // mm³ of solid perimeter
+    const core = V - shell;
+    const printedMM3 = shell + core * (num("infill") / 100);
+    const gramsPart = printedMM3 / 1000 * num("density");
+    const grams = gramsPart * (1 + num("support") / 100);
+    const hours = grams / Math.max(num("speed"), 0.1);
+    const qty = Math.max(1, Math.round(num("qty")));
+
+    const material = grams / 1000 * num("spool");
+    const power = num("watts") / 1000 * hours * num("kwh");
+    const machine = hours * (num("pcost") / Math.max(num("plife"), 1));
+    const labour = num("labmin") / 60 * num("labrate");
+    const base = material + power + machine + labour;
+    const buffer = base * num("fail") / 100;
+    const cost = base + buffer;
+    const profit = cost * num("markup") / 100;
+    const unit = cost + profit;
+    const total = unit * qty;
+
+    $("sGram").textContent = fmtNum(grams, 1) + " g";
+    $("sTime").textContent = fmtTime(hours);
+
+    $("qQty").textContent = qty + (qty === 1 ? " pc" : " pcs");
+    $("qTotal").textContent = fmtMoney(total, cur);
+    $("qPer").textContent = qty > 1 ? `${fmtMoney(unit, cur)} each · cost ${fmtMoney(cost, cur)}` : `Your cost ${fmtMoney(cost, cur)} · profit ${fmtMoney(profit, cur)}`;
+
+    const rows = [
+      ["Filament", `${fmtNum(grams, 1)} g ${$("mat").value}`, material, "var(--accent)"],
+      ["Machine wear", fmtTime(hours), machine, "color-mix(in srgb, var(--accent) 60%, var(--bg))"],
+      ["Electricity", `${fmtNum(num("watts") / 1000 * hours, 2)} kWh`, power, "color-mix(in srgb, var(--accent) 35%, var(--bg))"],
+      ["Labour", `${num("labmin")} min`, labour, "var(--muted)"],
+      ["Failure buffer", `${num("fail")}%`, buffer, "var(--warn)"]
+    ];
+    $("lines").innerHTML = rows.map(r =>
+      `<li><span class="k">${r[0]}<small>${r[1]}</small></span><span>${fmtMoney(r[2], cur)}</span></li>`).join("") +
+      `<li class="sum"><span>Cost per piece</span><span>${fmtMoney(cost, cur)}</span></li>` +
+      `<li><span class="k">Markup<small>${num("markup")}%</small></span><span>${fmtMoney(profit, cur)}</span></li>` +
+      `<li class="sum"><span>Price per piece</span><span>${fmtMoney(unit, cur)}</span></li>`;
+    $("bar").innerHTML = rows.filter(r => r[2] > 0).map(r => `<i style="width:${r[2] / cost * 100}%;background:${r[3]}" title="${r[0]}"></i>`).join("");
+    $("legend").innerHTML = rows.filter(r => r[2] > 0).map(r => `<span style="--c:${r[3]}">${r[0]} ${Math.round(r[2] / cost * 100)}%</span>`).join("");
+
+    lastQuote = [
+      `Quote: ${$("fname").textContent}`,
+      `Size: ${model.size.map(v => fmtNum(v, 1)).join(" × ")} mm · ${$("mat").value} · ${num("infill")}% infill`,
+      `Filament: ${fmtNum(grams, 1)} g · Print time: ${fmtTime(hours)}`,
+      `Price per piece: ${fmtMoney(unit, cur)}`,
+      qty > 1 ? `Quantity: ${qty} · Total: ${fmtMoney(total, cur)}` : null
+    ].filter(Boolean).join("\n");
+    save();
+  }
+
+  function setModel(pos, name, isSample) {
+    const m = measure(pos);
+    if (!m.tris || !isFinite(m.volMM3) || m.volMM3 <= 0) throw new Error("The model has no closed volume. Check that the mesh is watertight.");
+    model = m;
+    $("fname").textContent = name;
+    $("badge").textContent = isSample ? "Sample" : "Your model";
+    $("sVol").textContent = fmtNum(m.volMM3 / 1000, 2) + " cm³";
+    $("sSize").textContent = m.size.map(v => Math.round(v)).join(" × ") + " mm";
+    $("sTri").textContent = m.tris.toLocaleString("en-US");
+    $("sArea").textContent = fmtNum(m.areaMM2 / 100, 1) + " cm²";
+    showModel(pos, m);
+    calc();
+  }
+
+  function readFile(file) {
+    const err = $("err"); err.hidden = true;
+    if (!/\.stl$/i.test(file.name)) { err.textContent = "Only .stl files are supported for now. Export your model as STL and try again."; err.hidden = false; return; }
+    const fr = new FileReader();
+    fr.onload = () => {
+      try { setModel(parseSTL(fr.result), file.name, false); }
+      catch (e) { err.textContent = e.message; err.hidden = false; }
+    };
+    fr.readAsArrayBuffer(file);
+  }
+
+  /* ---------- wiring ---------- */
+  load();
+  $("mat").addEventListener("change", () => {
+    const p = MATERIALS[$("mat").value];
+    if (p) { $("density").value = p.density; $("spool").value = p.price; }
+    calc();
+  });
+  FIELDS.filter(k => k !== "mat").forEach(k => $(k).addEventListener("input", calc));
+  $("reset").addEventListener("click", () => { try { localStorage.removeItem("filaquote.settings"); } catch (e) {} load(); calc(); });
+
+  const drop = $("drop");
+  ["dragenter", "dragover"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add("over"); }));
+  ["dragleave", "drop"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove("over"); }));
+  drop.addEventListener("drop", e => { const f = e.dataTransfer.files[0]; if (f) readFile(f); });
+  $("viewer").addEventListener("dragover", e => e.preventDefault());
+  $("viewer").addEventListener("drop", e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) readFile(f); });
+  $("file").addEventListener("change", e => { const f = e.target.files[0]; if (f) readFile(f); });
+  document.querySelector('label[for="file"]').addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); $("file").click(); } });
+
+  $("copy").addEventListener("click", () => {
+    if (!lastQuote) return;
+    const done = msg => { $("toast").textContent = msg; setTimeout(() => $("toast").textContent = "", 2500); };
+    navigator.clipboard.writeText(lastQuote).then(() => done("Quote copied. Paste it into WhatsApp or email."))
+      .catch(() => done("Copy isn't allowed here. Select the price above and copy it manually."));
+  });
+
+  try { initViewer(); } catch (e) { $("cv").hidden = true; }
+  setModel(sampleModel(), "Twisted star vase (sample)", true);
+})();
+</script>

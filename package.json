@@ -1,0 +1,26 @@
+{
+  "name": "filaquote",
+  "version": "3.0.0",
+  "description": "Free, open-source 3D print cost calculator. Upload an STL, get filament, print time and a ready-to-send quote.",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "build:single": "node scripts/build.mjs --single",
+    "test": "tsx --test tests/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "esbuild": "^0.28.0",
+    "tailwindcss": "^4.3.0",
+    "tsx": "^4.20.0",
+    "typescript": "^6.0.0"
+  }
+}

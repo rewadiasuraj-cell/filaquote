@@ -1,85 +1,92 @@
 # FilaQuote
 
-**A free, open-source 3D print cost calculator that runs entirely in your browser.**
+**A free, open-source 3D print cost calculator. Upload an STL, check a price.**
 
-Drop in an STL file and FilaQuote tells you how much filament it needs, how long it will take, and what it really costs you to print — material, machine wear, electricity, labour and a failure buffer — then turns that into a price you can send to a customer.
+FilaQuote turns a 3D model into a quote you can send to a customer: filament, print time, electricity, machine wear, labor, failure allowance, profit margin, tax and a final price. Everything runs in your browser. Models are never uploaded.
 
-No sign-up, no server, no uploads. Your models never leave your computer.
+**Live app:** https://rewadiasuraj-cell.github.io/filaquote/
 
-## Features
+## What it does
 
-- **STL support** — binary and ASCII, any size your browser can hold
-- **Live 3D preview** — drag to rotate, scroll to zoom
-- **Real geometry maths** — exact volume and surface area from the mesh, so wall loops and infill are estimated properly instead of guessing "volume × density"
-- **Full cost breakdown** — filament, machine depreciation, electricity, labour, failure buffer and markup
-- **Material presets** — PLA, PETG, ABS, ASA, TPU, Silk, or your own custom density and price
-- **Multi-currency** — ₹ INR, $ USD, € EUR, £ GBP
-- **Quantity pricing** — quote 1 piece or 500
-- **One-click quote** — copy a clean summary straight into WhatsApp or email
-- **Remembers your settings** — saved locally in your browser
-- **Light and dark mode**, works on phones
+1. **Upload model.** Drag and drop (desktop) or tap to upload (mobile) any binary or ASCII STL. Interactive 3D preview with rotate, pan and zoom. Exact size, volume and surface area in millimetres.
+2. **Configure print.** *Quick estimate* shows only the six settings that matter most. *Advanced settings* hold printer, power, layer height, walls, speed, supports, machine cost, labor, failure allowance, taxes and extra charges.
+3. **Instant quote.** Updates as you type. The final price leads, followed by a full cost breakdown and chart.
 
-## Quick start
+### Two pricing modes
 
-It's a single HTML file. No build step.
+| Mode | Weight & time come from | Label shown |
+|---|---|---|
+| **Quick estimate** (default) | The model's geometry | *Geometry estimate · ±20%* |
+| **Slicer verified** | What you type in from Cura, PrusaSlicer or OrcaSlicer | *Slicer verified* |
 
-```bash
-git clone https://github.com/<your-username>/filaquote.git
-cd filaquote
-# open index.html in your browser, or serve it:
-python3 -m http.server 8000
-```
+Geometry estimates are never presented as slicer results.
 
-Then visit `http://localhost:8000`.
+### Also included
 
-### Host it free on GitHub Pages
+- Copy quote (ready for WhatsApp or email), Export CSV, Print / Save as PDF
+- INR and USD with a configurable exchange rate; switching currency never changes the real price
+- Printer presets (Bambu Lab A1/P1S/X1C, Creality K1/Ender-3 V3 SE, Prusa MK4S) and material presets
+- Inline validation, tooltips on technical fields, light/dark/system theme
+- Settings saved locally, no account needed
+- Mobile: sticky price bar and a full quote bottom sheet; 44 px touch targets; safe-area aware
 
-1. Push this repo to GitHub
-2. Go to **Settings → Pages**
-3. Choose **Deploy from a branch**, select `main` and `/ (root)`
-4. Your calculator is live at `https://<your-username>.github.io/filaquote/`
+## How the quote is calculated
 
-## How the estimate works
+All logic lives in [`src/lib/pricing.ts`](src/lib/pricing.ts) (pure functions, unit tested).
 
 | Step | Formula |
 |---|---|
 | Model volume | Signed tetrahedron sum over every triangle (exact for watertight meshes) |
-| Solid shell | `surface area × wall loops × 0.45 mm` (capped at model volume) |
-| Printed volume | `shell + (volume − shell) × infill %` |
-| Filament (g) | `printed volume (cm³) × density × (1 + supports & waste %)` |
-| Print time | `filament (g) ÷ throughput (g/h)` |
-| Machine wear | `print hours × printer price ÷ expected life (h)` |
-| Electricity | `watts ÷ 1000 × hours × rate per kWh` |
-| Cost | `(filament + wear + power + labour) × (1 + failure buffer %)` |
-| Price | `cost × (1 + markup %)` |
+| Solid shell | `min(volume, surface area × wall thickness)` |
+| Printed volume | `shell + (volume − shell) × infill` |
+| Filament | `printed volume × density × (1 + support allowance)` |
+| Print time | `filament ÷ (speed × layer height ÷ 0.20 mm)` |
+| Material | `filament kg × price per kg` |
+| Electricity | `kW × hours × tariff` |
+| Machine | `hours × machine hourly cost` |
+| Labor | `minutes ÷ 60 × labor rate` |
+| Production cost | `(material + electricity + machine + labor) × (1 + failure allowance)` |
+| Selling price / unit | `production cost ÷ (1 − margin)` |
+| Total | `(price × quantity + additional charges) × (1 + tax)` |
 
-**Tip:** slice a couple of your usual prints, then set *Throughput* to `slicer grams ÷ slicer hours`. After that, FilaQuote's time estimates will track your printer closely.
+**Margin vs markup:** v3 uses a true profit margin (share of the selling price). A 40% margin on a ₹100 cost gives ₹167, of which ₹67 is profit.
 
-These are estimates. Your slicer is still the source of truth for a specific print.
+**Calibrate it:** slice one typical job, then set *Printing speed* to `slicer grams ÷ slicer hours`.
+
+## Development
+
+```bash
+npm install
+npm test          # pricing + STL parser unit tests
+npm run build     # writes index.html + assets/ for GitHub Pages
+```
+
+Stack: React 19, TypeScript, Tailwind CSS v4, esbuild. three.js r128 is lazy-loaded from a CDN the first time the 3D viewer opens, so the quote is usable instantly even on slow phones.
+
+```
+src/
+  lib/          pricing.ts · geometry.ts · presets.ts · format.ts · export.ts  (no UI code)
+  components/   Header, UploadZone, ModelViewer, ConfigPanel, QuoteCard, Fields,
+                Controls (segmented, accordion, button, badge), Overlay (sheet, toasts), Tooltip
+  hooks.ts      settings, theme, animated numbers, keyboard detection
+  App.tsx       three-stage workflow and layout
+tests/          node:test unit tests
+scripts/build.mjs
+```
+
+After changing anything in `src/`, run `npm run build` and commit the updated `index.html` and `assets/`.
 
 ## Roadmap
 
-Good first contributions:
+- [ ] 3MF and OBJ upload
+- [ ] Import grams and time straight from G-code
+- [ ] Multiple parts in one quote
+- [ ] Shop logo and terms on the PDF
+- [ ] Resin (SLA/MSLA) mode
+- [ ] Hindi and other translations
 
-- [ ] 3MF and OBJ file support
-- [ ] Multiple plates / multiple files in one quote
-- [ ] Printable PDF quote with your shop's logo
-- [ ] Import exact grams and time from G-code
-- [ ] Resin (SLA/MSLA) mode with ml-based pricing
-- [ ] Translations (Hindi, Spanish, German, …)
-- [ ] Shareable quote links
-
-## Contributing
-
-Pull requests are welcome. For a bigger change, open an issue first so we can talk it through.
-
-1. Fork the repo
-2. Create a branch: `git checkout -b feature/3mf-support`
-3. Commit your changes
-4. Open a pull request
-
-Everything lives in `index.html`. The only dependency is [three.js](https://threejs.org/) (r128) loaded from cdnjs for the preview.
+Pull requests are welcome. For big changes, open an issue first.
 
 ## License
 
-[MIT](LICENSE) — free for personal and commercial use.
+[MIT](LICENSE)
